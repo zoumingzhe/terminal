@@ -117,6 +117,40 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\..\..\packages\Microsoft.UI.Xaml.2.1.190405001-prerelease\build\native\Microsoft.UI.Xaml.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\..\packages\Microsoft.UI.Xaml.2.1.190405001-prerelease\build\native\Microsoft.UI.Xaml.targets'))" />
   </Target>
+
   <Import Project="$(OpenConsoleDir)src\common.build.post.props" />
   <Import Project="$(OpenConsoleDir)src\cppwinrt.build.post.props" />
+
+  <PropertyGroup>
+    <!-- mt.exe before 18xxx did not support generating manifests from .winmds;
+         mt.exe before 18347 would crash randomly when asked to do this. -->
+    <BeforeLinkTargets Condition="'$(WindowsTargetPlatformVersion)' &gt;= '10.0.18347.1'">
+      $(BeforeLinkTargets);
+      _ConsoleGenerateAdditionalWinmdManifests;
+    </BeforeLinkTargets>
+  </PropertyGroup>
+  <Target Name="_ConsoleMapWinmdsToManifestFiles" DependsOnTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <!-- For each non-system .winmd file in References, generate a .manifest in IntDir for it. -->
+      <_ConsoleWinmdManifest Include="@(ReferencePath->'$(IntDir)\%(FileName).manifest')" Condition="'%(ReferencePath.IsSystemReference)' != 'true' and '%(ReferencePath.WinMDFile)' == 'true' and '%(ReferencePath.ReferenceSourceTarget)' == 'ResolveAssemblyReference'">
+        <WinMDPath>%(ReferencePath.FullPath)</WinMDPath>
+        <Implementation>%(ReferencePath.Implementation)</Implementation>
+      </_ConsoleWinmdManifest>
+      <!-- For each referenced project that _produces_ a winmd, generate a temporary item that maps to
+           the winmd, and use that temporary item to generate a .manifest in IntDir for it.
+           We don't set Implementation here because it's inherited from the _ResolvedNativeProjectReferencePaths. -->
+      <_ConsoleWinmdProjectReference Condition="'%(_ResolvedNativeProjectReferencePaths.ProjectType)' != 'StaticLibrary'" Include="@(_ResolvedNativeProjectReferencePaths-&gt;WithMetadataValue('FileType','winmd')-&gt;'%(RootDir)%(Directory)%(TargetPath)')" />
+      <_ConsoleWinmdManifest Include="@(_ConsoleWinmdProjectReference->'$(IntDir)\%(FileName).manifest')">
+        <WinMDPath>%(Identity)</WinMDPath>
+      </_ConsoleWinmdManifest>
+    </ItemGroup>
+  </Target>
+  <!-- This target is batched and a new Exec is spawned for each entry in _ConsoleWinmdManifest. -->
+  <Target Name="_ConsoleGenerateAdditionalWinmdManifests" Inputs="@(_ConsoleWinmdManifest.WinMDPath)" Outputs="@(_ConsoleWinmdManifest)" DependsOnTargets="_ConsoleMapWinmdsToManifestFiles">
+    <Exec Command="mt.exe -winmd:%(_ConsoleWinmdManifest.WinMDPath) -dll:%(_ConsoleWinmdManifest.Implementation) -out:%(_ConsoleWinmdManifest.Identity)" />
+    <ItemGroup>
+      <!-- Emit the generated manifest into the Link inputs. -->
+      <Manifest Include="@(_ConsoleWinmdManifest)" />
+    </ItemGroup>
+  </Target>
 </Project>
