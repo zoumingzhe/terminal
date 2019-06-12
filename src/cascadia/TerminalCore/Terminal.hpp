@@ -124,7 +124,7 @@ public:
     void SetBoxSelection(const bool isEnabled) noexcept;
     void ClearSelection() noexcept;
 
-    const std::wstring RetrieveSelectedTextFromBuffer(bool trimTrailingWhitespace) const;
+    const TextBuffer::TextAndColor RetrieveSelectedTextFromBuffer(bool trimTrailingWhitespace) const;
 #pragma endregion
 
 private:
