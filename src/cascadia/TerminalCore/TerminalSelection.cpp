@@ -20,25 +20,25 @@ std::vector<SMALL_RECT> Terminal::_GetSelectionRects() const
     }
 
     // create these new anchors for comparison and rendering
-    COORD selectionAnchorWithOffset;
-    COORD endSelectionPositionWithOffset;
+    COORD selectionAnchorWithOffset{ _selectionAnchor };
+    COORD endSelectionPositionWithOffset{ _endSelectionPosition };
 
     // Add anchor offset here to update properly on new buffer output
-    THROW_IF_FAILED(ShortAdd(_selectionAnchor.Y, _selectionAnchor_YOffset, &selectionAnchorWithOffset.Y));
-    THROW_IF_FAILED(ShortAdd(_endSelectionPosition.Y, _endSelectionPosition_YOffset, &endSelectionPositionWithOffset.Y));
+    THROW_IF_FAILED(ShortAdd(selectionAnchorWithOffset.Y, _selectionAnchor_YOffset, &selectionAnchorWithOffset.Y));
+    THROW_IF_FAILED(ShortAdd(endSelectionPositionWithOffset.Y, _endSelectionPosition_YOffset, &endSelectionPositionWithOffset.Y));
 
-    // clamp X values to be within buffer bounds
-    const auto bufferWidth = _buffer->GetSize().RightInclusive();
-    selectionAnchorWithOffset.X = std::clamp(_selectionAnchor.X, static_cast<SHORT>(0), bufferWidth);
-    endSelectionPositionWithOffset.X = std::clamp(_endSelectionPosition.X, static_cast<SHORT>(0), bufferWidth);
+    // Clamp within bounds.
+    auto bufferSize = _buffer->GetSize();
+    bufferSize.Clamp(selectionAnchorWithOffset);
+    bufferSize.Clamp(endSelectionPositionWithOffset);
 
-    // NOTE: (0,0) is top-left so vertical comparison is inverted
-    const COORD& higherCoord = (selectionAnchorWithOffset.Y <= endSelectionPositionWithOffset.Y) ?
-                                   selectionAnchorWithOffset :
-                                   endSelectionPositionWithOffset;
-    const COORD& lowerCoord = (selectionAnchorWithOffset.Y > endSelectionPositionWithOffset.Y) ?
+    // CompareInBounds returns whether A is to the left of (rv<0), equal to (rv==0), or to the right of (rv>0) B.
+    // Here, we want the "left"most coordinate to be the one "higher" on the screen. The other gets the dubious honor of
+    // being the "lower."
+    const COORD& higherCoord = bufferSize.CompareInBounds(selectionAnchorWithOffset, endSelectionPositionWithOffset) <= 0 ?
                                   selectionAnchorWithOffset :
                                   endSelectionPositionWithOffset;
+    const COORD& lowerCoord = (higherCoord == selectionAnchorWithOffset) ? endSelectionPositionWithOffset : selectionAnchorWithOffset;
 
     selectionArea.reserve(lowerCoord.Y - higherCoord.Y + 1);
     for (auto row = higherCoord.Y; row <= lowerCoord.Y; row++)
@@ -56,7 +56,7 @@ std::vector<SMALL_RECT> Terminal::_GetSelectionRects() const
         else
         {
             selectionRow.Left = (row == higherCoord.Y) ? higherCoord.X : 0;
-            selectionRow.Right = (row == lowerCoord.Y) ? lowerCoord.X : bufferWidth;
+            selectionRow.Right = (row == lowerCoord.Y) ? lowerCoord.X : bufferSize.RightInclusive();
         }
 
         selectionRow.Left = _ExpandWideGlyphSelectionLeft(selectionRow.Left, row);
