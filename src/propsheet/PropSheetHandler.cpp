@@ -34,7 +34,7 @@ public:
     }
 
     // IPersist
-    STDMETHODIMP GetClassID(_Out_ CLSID* clsid) override
+    STDMETHODIMP GetClassID(_Out_ CLSID * clsid) override
     {
         *clsid = __uuidof(this);
         return S_OK;
@@ -43,7 +43,7 @@ public:
     // IShellExtInit
     // Shell QI's for IShellExtInit and calls Initialize first. If we return a succeeding HRESULT, the shell will QI for
     // IShellPropSheetExt and call AddPages. A failing HRESULT causes the shell to skip us.
-    STDMETHODIMP Initialize(_In_ PCIDLIST_ABSOLUTE /*pidlFolder*/, _In_ IDataObject* pdtobj, _In_ HKEY /*hkeyProgID*/)
+    STDMETHODIMP Initialize(_In_ PCIDLIST_ABSOLUTE /*pidlFolder*/, _In_ IDataObject * pdtobj, _In_ HKEY /*hkeyProgID*/)
     {
         WCHAR szLinkFileName[MAX_PATH];
         HRESULT hr = _ShouldAddPropertySheet(pdtobj, szLinkFileName, ARRAYSIZE(szLinkFileName));
@@ -94,6 +94,12 @@ private:
     {
         g_fHostedInFileProperties = TRUE;
         gpStateInfo = &g_csi;
+
+        // Initialize the fIsV2Console with whatever the current v2 setting is
+        // in the registry. Usually this is set by conhost, but in this path,
+        // we're being launched straight from explorer. See GH#2319, GH#2651
+        gpStateInfo->fIsV2Console = GetConsoleBoolValue(CONSOLE_REGISTRY_FORCEV2, TRUE);
+
         InitRegistryValues(gpStateInfo);
         gpStateInfo->Defaults = TRUE;
         GetRegistryValues(gpStateInfo);
@@ -112,7 +118,7 @@ private:
                 // Not all console shortcuts have console-specific properties. We just take the registry defaults in
                 // those cases.
                 BOOL readSettings = FALSE;
-                NTSTATUS s = ShortcutSerialization::s_GetLinkValues(gpStateInfo, &readSettings, nullptr, 0, nullptr, 0, nullptr, nullptr, nullptr);
+                NTSTATUS s = ShortcutSerialization::s_GetLinkValues(gpStateInfo, &readSettings, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, nullptr, nullptr);
                 hr = HRESULT_FROM_NT(s);
             }
             else
@@ -133,12 +139,12 @@ private:
     ///////////////////////////////////////////////////////////////////////////
     // CODE FROM THE SHELL DEPOT'S `idllib.h`
     // get a link target item without resolving it.
-    HRESULT GetTargetIdList(_In_ IShellItem* psiLink, _COM_Outptr_ PIDLIST_ABSOLUTE* ppidl)
+    HRESULT GetTargetIdList(_In_ IShellItem * psiLink, _COM_Outptr_ PIDLIST_ABSOLUTE * ppidl)
     {
         *ppidl = nullptr;
 
         IShellLink* psl;
-        HRESULT hr = psiLink->BindToHandler(NULL, BHID_SFUIObject, IID_PPV_ARGS(&psl));
+        HRESULT hr = psiLink->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(&psl));
         if (SUCCEEDED(hr))
         {
             hr = psl->GetIDList(ppidl);
@@ -150,7 +156,7 @@ private:
         }
         return hr;
     }
-    HRESULT GetTargetItem(_In_ IShellItem* psiLink, _In_ REFIID riid, _COM_Outptr_ void** ppv)
+    HRESULT GetTargetItem(_In_ IShellItem * psiLink, _In_ REFIID riid, _COM_Outptr_ void** ppv)
     {
         *ppv = nullptr;
 
@@ -165,7 +171,7 @@ private:
     }
     ///////////////////////////////////////////////////////////////////////////
 
-    HRESULT _GetShellItemLinkTargetExpanded(_In_ IShellItem* pShellItem,
+    HRESULT _GetShellItemLinkTargetExpanded(_In_ IShellItem * pShellItem,
                                             _Out_writes_(cchFilePathExtended) PWSTR pszFilePathExtended,
                                             const size_t cchFilePathExtended)
     {
@@ -184,7 +190,7 @@ private:
         return hr;
     }
 
-    HRESULT _ShouldAddPropertySheet(_In_ IDataObject* pdtobj,
+    HRESULT _ShouldAddPropertySheet(_In_ IDataObject * pdtobj,
                                     _Out_writes_(cchLinkFileName) PWSTR pszLinkFileName,
                                     const size_t cchLinkFileName)
     {
@@ -212,6 +218,7 @@ private:
                             // Second expensive portion of this method -- cracks the PE header of the .lnk file target
                             // if it's an executable
                             SHFILEINFO sfi = { 0 };
+
                             DWORD_PTR dwFileType = SHGetFileInfo(szFileExpanded,
                                                                  0 /*dwFileAttributes*/,
                                                                  &sfi,

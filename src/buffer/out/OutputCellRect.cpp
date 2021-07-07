@@ -6,8 +6,8 @@
 #include "OutputCellRect.hpp"
 
 // Routine Description:
-// - Constucts an empty in-memory region for holding output buffer cell data.
-OutputCellRect::OutputCellRect() :
+// - Constructs an empty in-memory region for holding output buffer cell data.
+OutputCellRect::OutputCellRect() noexcept :
     _rows(0),
     _cols(0)
 {
@@ -50,7 +50,7 @@ gsl::span<OutputCell> OutputCellRect::GetRow(const size_t row)
 // - Read-only iterator of OutputCells
 OutputCellIterator OutputCellRect::GetRowIter(const size_t row) const
 {
-    const std::basic_string_view<OutputCell> view(_FindRowOffset(row), _cols);
+    const gsl::span<const OutputCell> view(_FindRowOffset(row), _cols);
 
     return OutputCellIterator(view);
 }
@@ -64,7 +64,7 @@ OutputCellIterator OutputCellRect::GetRowIter(const size_t row) const
 // - Pointer to the location in the rectangle that represents the start of the requested row.
 OutputCell* OutputCellRect::_FindRowOffset(const size_t row)
 {
-    return (_storage.data() + (row * _cols));
+    return &_storage.at(row * _cols);
 }
 
 // Routine Description:
@@ -76,7 +76,7 @@ OutputCell* OutputCellRect::_FindRowOffset(const size_t row)
 // - Pointer to the location in the rectangle that represents the start of the requested row.
 const OutputCell* OutputCellRect::_FindRowOffset(const size_t row) const
 {
-    return (_storage.data() + (row * _cols));
+    return &_storage.at(row * _cols);
 }
 
 // Routine Description:

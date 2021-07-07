@@ -6,6 +6,8 @@
 // Custom window messages
 #define CM_UPDATE_TITLE (WM_USER)
 
+#include <wil/resource.h>
+
 template<typename T>
 class BaseWindow
 {
@@ -26,11 +28,9 @@ public:
             T* that = static_cast<T*>(cs->lpCreateParams);
             WINRT_ASSERT(that);
             WINRT_ASSERT(!that->_window);
-            that->_window = window;
-            SetWindowLongPtr(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(that));
+            that->_window = wil::unique_hwnd(window);
 
-            EnableNonClientDpiScaling(window);
-            that->_currentDpi = GetDpiForWindow(window);
+            return that->_OnNcCreate(wparam, lparam);
         }
         else if (T* that = GetThisFromHandle(window))
         {
@@ -46,7 +46,7 @@ public:
         {
         case WM_DPICHANGED:
         {
-            return HandleDpiChange(_window, wparam, lparam);
+            return HandleDpiChange(_window.get(), wparam, lparam);
         }
 
         case WM_DESTROY:
@@ -87,15 +87,16 @@ public:
                 // do nothing.
                 break;
             }
+            break;
         }
         case CM_UPDATE_TITLE:
         {
-            SetWindowTextW(_window, _title.c_str());
+            SetWindowTextW(_window.get(), _title.c_str());
             break;
         }
         }
 
-        return DefWindowProc(_window, message, wparam, lparam);
+        return DefWindowProc(_window.get(), message, wparam, lparam);
     }
 
     // DPI Change handler. on WM_DPICHANGE resize the window
@@ -125,18 +126,18 @@ public:
     RECT GetWindowRect() const noexcept
     {
         RECT rc = { 0 };
-        ::GetWindowRect(_window, &rc);
+        ::GetWindowRect(_window.get(), &rc);
         return rc;
     }
 
     HWND GetHandle() const noexcept
     {
-        return _window;
-    };
+        return _window.get();
+    }
 
     float GetCurrentDpiScale() const noexcept
     {
-        const auto dpi = ::GetDpiForWindow(_window);
+        const auto dpi = ::GetDpiForWindow(_window.get());
         const auto scale = static_cast<float>(dpi) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
         return scale;
     }
@@ -145,7 +146,7 @@ public:
     SIZE GetPhysicalSize() const noexcept
     {
         RECT rect = {};
-        GetClientRect(_window, &rect);
+        GetClientRect(_window.get(), &rect);
         const auto windowsWidth = rect.right - rect.left;
         const auto windowsHeight = rect.bottom - rect.top;
         return SIZE{ windowsWidth, windowsHeight };
@@ -153,7 +154,7 @@ public:
 
     //// Gets the logical (in DIPs) size of a physical size specified by the parameter physicalSize
     //// Remarks:
-    //// XAML coordinate system is always in Display Indepenent Pixels (a.k.a DIPs or Logical). However Win32 GDI (because of legacy reasons)
+    //// XAML coordinate system is always in Display Independent Pixels (a.k.a DIPs or Logical). However Win32 GDI (because of legacy reasons)
     //// in DPI mode "Per-Monitor and Per-Monitor (V2) DPI Awareness" is always in physical pixels.
     //// The formula to transform is:
     ////     logical = (physical / dpi) + 0.5 // 0.5 is to ensure that we pixel snap correctly at the edges, this is necessary with odd DPIs like 1.25, 1.5, 1, .75
@@ -162,11 +163,11 @@ public:
     ////   https://docs.microsoft.com/en-us/windows/desktop/hidpi/high-dpi-desktop-application-development-on-windows#per-monitor-and-per-monitor-v2-dpi-awareness
     winrt::Windows::Foundation::Size GetLogicalSize(const SIZE physicalSize) const noexcept
     {
-        const auto dpi = GetCurrentDpiScale();
+        const auto scale = GetCurrentDpiScale();
         // 0.5 is to ensure that we pixel snap correctly at the edges, this is necessary with odd DPIs like 1.25, 1.5, 1, .75
-        const auto logicalWidth = (physicalSize.cx / dpi) + 0.5f;
-        const auto logicalHeigth = (physicalSize.cy / dpi) + 0.5f;
-        return winrt::Windows::Foundation::Size(logicalWidth, logicalHeigth);
+        const auto logicalWidth = (physicalSize.cx / scale) + 0.5f;
+        const auto logicalHeight = (physicalSize.cy / scale) + 0.5f;
+        return winrt::Windows::Foundation::Size(logicalWidth, logicalHeight);
     }
 
     winrt::Windows::Foundation::Size GetLogicalSize() const noexcept
@@ -183,12 +184,21 @@ public:
     void UpdateTitle(std::wstring_view newTitle)
     {
         _title = newTitle;
-        PostMessageW(_window, CM_UPDATE_TITLE, 0, reinterpret_cast<LPARAM>(nullptr));
-    };
+        PostMessageW(_window.get(), CM_UPDATE_TITLE, 0, reinterpret_cast<LPARAM>(nullptr));
+    }
+
+    // Method Description:
+    // Reset the current dpi of the window. This method is only called after we change the
+    // initial launch position. This makes sure the dpi is consistent with the monitor on which
+    // the window will launch
+    void RefreshCurrentDPI()
+    {
+        _currentDpi = GetDpiForWindow(_window.get());
+    }
 
 protected:
     using base_type = BaseWindow<T>;
-    HWND _window = nullptr;
+    wil::unique_hwnd _window;
 
     unsigned int _currentDpi = 0;
     bool _inDpiChange = false;
@@ -196,6 +206,20 @@ protected:
     std::wstring _title = L"";
 
     bool _minimized = false;
+
+    // Method Description:
+    // - This method is called when the window receives the WM_NCCREATE message.
+    // Return Value:
+    // - The value returned from the window proc.
+    virtual [[nodiscard]] LRESULT _OnNcCreate(WPARAM wParam, LPARAM lParam) noexcept
+    {
+        SetWindowLongPtr(_window.get(), GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+
+        EnableNonClientDpiScaling(_window.get());
+        _currentDpi = GetDpiForWindow(_window.get());
+
+        return DefWindowProc(_window.get(), WM_NCCREATE, wParam, lParam);
+    };
 };
 
 template<typename T>

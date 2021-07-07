@@ -50,8 +50,14 @@ public:
     short GetWidth() const;
     short GetHeight() const;
     bool GetInheritCursor() const;
+    bool IsResizeQuirkEnabled() const;
+    bool IsWin32InputModeEnabled() const;
 
     void SetExpectedSize(COORD dimensions) noexcept;
+
+#ifdef UNIT_TESTING
+    void EnableConptyModeForTests();
+#endif
 
     static const std::wstring_view VT_MODE_ARG;
     static const std::wstring_view HEADLESS_ARG;
@@ -64,6 +70,8 @@ public:
     static const std::wstring_view WIDTH_ARG;
     static const std::wstring_view HEIGHT_ARG;
     static const std::wstring_view INHERIT_CURSOR_ARG;
+    static const std::wstring_view RESIZE_QUIRK;
+    static const std::wstring_view WIN32_INPUT_MODE;
     static const std::wstring_view FEATURE_ARG;
     static const std::wstring_view FEATURE_PTY_ARG;
 
@@ -96,7 +104,8 @@ private:
         _serverHandle(serverHandle),
         _signalHandle(signalHandle),
         _inheritCursor(inheritCursor),
-        _recievedEarlySizeChange{ false },
+        _resizeQuirk(false),
+        _receivedEarlySizeChange{ false },
         _originalWidth{ -1 },
         _originalHeight{ -1 }
     {
@@ -123,8 +132,10 @@ private:
     DWORD _serverHandle;
     DWORD _signalHandle;
     bool _inheritCursor;
+    bool _resizeQuirk{ false };
+    bool _win32InputMode{ false };
 
-    bool _recievedEarlySizeChange;
+    bool _receivedEarlySizeChange;
     short _originalWidth;
     short _originalHeight;
 

@@ -38,6 +38,9 @@ static std::string GenerateOscTitleToken();
 static std::string GenerateHardResetToken();
 static std::string GenerateSoftResetToken();
 static std::string GenerateOscColorTableToken();
+static std::string GenerateVt52Token();
+static std::string GenerateVt52CursorAddressToken();
+static std::string GenerateOscHyperlinkToken();
 
 const fuzz::_fuzz_type_entry<BYTE> g_repeatMap[] = {
     { 4, [](BYTE) { return CFuzzChance::GetRandom<BYTE>(2, 0xF); } },
@@ -58,7 +61,10 @@ const std::function<std::string()> g_tokenGenerators[] = {
     GenerateOscTitleToken,
     GenerateHardResetToken,
     GenerateSoftResetToken,
-    GenerateOscColorTableToken
+    GenerateOscColorTableToken,
+    GenerateVt52Token,
+    GenerateVt52CursorAddressToken,
+    GenerateOscHyperlinkToken
 };
 
 std::string GenerateTokenLowProbability()
@@ -302,6 +308,7 @@ std::string GeneratePrivateModeParamToken()
     const _fuzz_type_entry<std::string> map[] = {
         { 12, [](std::string) { std::string s; AppendFormat(s, "?%02d", CFuzzChance::GetRandom<BYTE>()); return s; } },
         { 8, [](std::string) { return std::string("?1"); } },
+        { 8, [](std::string) { return std::string("?2"); } },
         { 8, [](std::string) { return std::string("?3"); } },
         { 8, [](std::string) { return std::string("?12"); } },
         { 8, [](std::string) { return std::string("?25"); } },
@@ -505,6 +512,96 @@ std::string GenerateOscColorTableToken()
     return GenerateFuzzedOscToken(FUZZ_MAP(map), tokens, ARRAYSIZE(tokens));
 }
 
+// VT52 sequences without parameters.
+std::string GenerateVt52Token()
+{
+    const LPSTR tokens[] = { "A", "B", "C", "D", "F", "G", "H", "I", "J", "K", "Z", "<" };
+    std::string cux(ESC);
+    cux += GenerateTokenLowProbability();
+    cux += CFuzzChance::SelectOne(tokens, ARRAYSIZE(tokens));
+    return cux;
+}
+
+// VT52 direct cursor address sequence with parameters.
+std::string GenerateVt52CursorAddressToken()
+{
+    const LPSTR tokens[] = { "Y" };
+    std::string cux(ESC);
+    cux += GenerateTokenLowProbability();
+    cux += CFuzzChance::SelectOne(tokens, ARRAYSIZE(tokens));
+    cux += GenerateTokenLowProbability();
+    AppendFormat(cux, "%c", CFuzzChance::GetRandom<BYTE>(32, 255));
+    cux += GenerateTokenLowProbability();
+    AppendFormat(cux, "%c", CFuzzChance::GetRandom<BYTE>(32, 255));
+    return cux;
+}
+
+// Osc Hyperlink String. An Osc followed by 8, followed by some optional key-value pairs,
+// followed by a ";", followed by a string, and BEL terminated.
+std::string GenerateOscHyperlinkToken()
+{
+    const LPSTR tokens[] = { "\x7" };
+    const _fuzz_type_entry<std::string> map[] = {
+        { 100,
+          [](std::string) {
+              std::string s;
+              AppendFormat(s, "%d", 8);
+              s.append(";");
+
+              // Maybe append some key-value pairs
+              SHORT numPairs = CFuzzChance::GetRandom<SHORT>(0, 5);
+              for (SHORT i = 0; i < numPairs; i++)
+              {
+                  // usually add an id
+                  SHORT limit = CFuzzChance::GetRandom<SHORT>(0, 10);
+                  switch (limit)
+                  {
+                  case 0:
+                  case 1:
+                  case 2:
+                  case 3:
+                  case 4:
+                  case 5:
+                  case 6:
+                      s.append("id=");
+                      break;
+                  case 7:
+                      s.append("rgb=");
+                      break;
+                  case 8:
+                      s.append("cmyk=");
+                      break;
+                  default:
+                      // append some characters for the string
+                      limit = CFuzzChance::GetRandom<SHORT>();
+                      for (SHORT j = 0; j < limit; j++)
+                      {
+                          AppendFormat(s, "%c", CFuzzChance::GetRandom<BYTE>());
+                      }
+                      s.append("=");
+                  }
+                  // append some characters for the value
+                  limit = CFuzzChance::GetRandom<SHORT>();
+                  for (SHORT j = 0; j < limit; j++)
+                  {
+                      AppendFormat(s, "%c", CFuzzChance::GetRandom<BYTE>());
+                  }
+              }
+
+              s.append(";");
+              // append some characters for the uri
+              SHORT limit = CFuzzChance::GetRandom<SHORT>();
+              for (SHORT i = 0; i < limit; i++)
+              {
+                  AppendFormat(s, "%c", CFuzzChance::GetRandom<BYTE>());
+              }
+              return s;
+          } }
+    };
+
+    return GenerateFuzzedOscToken(FUZZ_MAP(map), tokens, ARRAYSIZE(tokens));
+}
+
 int __cdecl wmain(int argc, WCHAR* argv[])
 {
     if (argc != 3)
@@ -513,7 +610,7 @@ int __cdecl wmain(int argc, WCHAR* argv[])
         return -1;
     }
 
-    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (SUCCEEDED(hr))
     {
         LPWSTR pwszOutputDir = argv[2];

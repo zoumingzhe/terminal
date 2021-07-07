@@ -138,16 +138,17 @@ BgfxEngine::BgfxEngine(PVOID SharedViewBase, LONG DisplayHeight, LONG DisplayWid
         for (SHORT j = 0; j < _displayWidth; j++)
         {
             NewRun[j].Character = L' ';
-            NewRun[j].Atribute = 0;
+            NewRun[j].Attribute = 0;
         }
     }
 
     return S_OK;
 }
 
-[[nodiscard]] HRESULT BgfxEngine::PaintBufferLine(const std::basic_string_view<Cluster> clusters,
+[[nodiscard]] HRESULT BgfxEngine::PaintBufferLine(const gsl::span<const Cluster> clusters,
                                                   const COORD coord,
-                                                  const bool /*trimLeft*/) noexcept
+                                                  const bool /*trimLeft*/,
+                                                  const bool /*lineWrapped*/) noexcept
 {
     try
     {
@@ -156,8 +157,8 @@ BgfxEngine::BgfxEngine(PVOID SharedViewBase, LONG DisplayHeight, LONG DisplayWid
 
         for (size_t i = 0; i < clusters.size() && i < (size_t)_displayWidth; i++)
         {
-            NewRun[coord.X + i].Character = clusters.at(i).GetTextAsSingle();
-            NewRun[coord.X + i].Atribute = _currentLegacyColorAttribute;
+            NewRun[coord.X + i].Character = til::at(clusters, i).GetTextAsSingle();
+            NewRun[coord.X + i].Attribute = _currentLegacyColorAttribute;
         }
 
         return S_OK;
@@ -178,7 +179,7 @@ BgfxEngine::BgfxEngine(PVOID SharedViewBase, LONG DisplayHeight, LONG DisplayWid
     return S_OK;
 }
 
-[[nodiscard]] HRESULT BgfxEngine::PaintCursor(const IRenderEngine::CursorOptions& options) noexcept
+[[nodiscard]] HRESULT BgfxEngine::PaintCursor(const CursorOptions& options) noexcept
 {
     // TODO: MSFT: 11448021 - Modify BGFX to support rendering full-width
     // characters and a full-width cursor.
@@ -193,13 +194,11 @@ BgfxEngine::BgfxEngine(PVOID SharedViewBase, LONG DisplayHeight, LONG DisplayWid
     return HRESULT_FROM_NT(Status);
 }
 
-[[nodiscard]] HRESULT BgfxEngine::UpdateDrawingBrushes(COLORREF const /*colorForeground*/,
-                                                       COLORREF const /*colorBackground*/,
-                                                       const WORD legacyColorAttribute,
-                                                       const bool /*isBold*/,
+[[nodiscard]] HRESULT BgfxEngine::UpdateDrawingBrushes(const TextAttribute& textAttributes,
+                                                       const gsl::not_null<IRenderData*> /*pData*/,
                                                        bool const /*isSettingDefaultBrushes*/) noexcept
 {
-    _currentLegacyColorAttribute = legacyColorAttribute;
+    _currentLegacyColorAttribute = textAttributes.GetLegacyAttributes();
 
     return S_OK;
 }
@@ -231,7 +230,7 @@ BgfxEngine::BgfxEngine(PVOID SharedViewBase, LONG DisplayHeight, LONG DisplayWid
     return S_OK;
 }
 
-SMALL_RECT BgfxEngine::GetDirtyRectInChars()
+std::vector<til::rectangle> BgfxEngine::GetDirtyArea()
 {
     SMALL_RECT r;
     r.Bottom = _displayHeight > 0 ? (SHORT)(_displayHeight - 1) : 0;
@@ -239,7 +238,7 @@ SMALL_RECT BgfxEngine::GetDirtyRectInChars()
     r.Left = 0;
     r.Right = _displayWidth > 0 ? (SHORT)(_displayWidth - 1) : 0;
 
-    return r;
+    return { r };
 }
 
 [[nodiscard]] HRESULT BgfxEngine::GetFontSize(_Out_ COORD* const pFontSize) noexcept

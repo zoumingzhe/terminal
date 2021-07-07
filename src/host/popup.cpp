@@ -32,7 +32,7 @@ Popup::Popup(SCREEN_INFORMATION& screenInfo, const COORD proposedSize) :
     _screenInfo(screenInfo),
     _userInputFunction(&Popup::_getUserInputInternal)
 {
-    _attributes = screenInfo.GetPopupAttributes()->GetLegacyAttributes();
+    _attributes = screenInfo.GetPopupAttributes();
 
     const COORD size = _CalculateSize(screenInfo, proposedSize);
     const COORD origin = _CalculateOrigin(screenInfo, size);
@@ -93,15 +93,15 @@ void Popup::_DrawBorder()
     _screenInfo.Write(OutputCellIterator(_attributes, Width() + 2), WriteCoord);
 
     // draw upper left corner
-    _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[UPPER_LEFT_CORNER], 1), WriteCoord);
+    _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_DOWN_AND_RIGHT, 1), WriteCoord);
 
     // draw upper bar
     WriteCoord.X += 1;
-    _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[HORIZONTAL_LINE], Width()), WriteCoord);
+    _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_HORIZONTAL, Width()), WriteCoord);
 
     // draw upper right corner
     WriteCoord.X = _region.Right;
-    _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[UPPER_RIGHT_CORNER], 1), WriteCoord);
+    _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_DOWN_AND_LEFT, 1), WriteCoord);
 
     for (SHORT i = 0; i < Height(); i++)
     {
@@ -111,10 +111,10 @@ void Popup::_DrawBorder()
         // fill attributes
         _screenInfo.Write(OutputCellIterator(_attributes, Width() + 2), WriteCoord);
 
-        _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[VERTICAL_LINE], 1), WriteCoord);
+        _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_VERTICAL, 1), WriteCoord);
 
         WriteCoord.X = _region.Right;
-        _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[VERTICAL_LINE], 1), WriteCoord);
+        _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_VERTICAL, 1), WriteCoord);
     }
 
     // Draw bottom line.
@@ -125,15 +125,15 @@ void Popup::_DrawBorder()
 
     // Draw bottom left corner.
     WriteCoord.X = _region.Left;
-    _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[BOTTOM_LEFT_CORNER], 1), WriteCoord);
+    _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_UP_AND_RIGHT, 1), WriteCoord);
 
     // Draw lower bar.
     WriteCoord.X += 1;
-    _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[HORIZONTAL_LINE], Width()), WriteCoord);
+    _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_HORIZONTAL, Width()), WriteCoord);
 
     // draw lower right corner
     WriteCoord.X = _region.Right;
-    _screenInfo.Write(OutputCellIterator(_screenInfo.LineChar[BOTTOM_RIGHT_CORNER], 1), WriteCoord);
+    _screenInfo.Write(OutputCellIterator(UNICODE_BOX_DRAW_LIGHT_UP_AND_LEFT, 1), WriteCoord);
 }
 
 // Routine Description:
@@ -173,55 +173,6 @@ void Popup::_DrawPrompt(const UINT id)
                                                                                        text,
                                                                                        WriteCoord,
                                                                                        used));
-}
-
-// Routine Description:
-// - Updates the colors of the backed up information inside this popup.
-// - This is useful if user preferences change while a popup is displayed.
-// Arguments:
-// - newAttr - The new default color for text in the buffer
-// - newPopupAttr - The new color for text in popups
-// - oldAttr - The previous default color for text in the buffer
-// - oldPopupAttr - The previous color for text in popups
-void Popup::UpdateStoredColors(const TextAttribute& newAttr,
-                               const TextAttribute& newPopupAttr,
-                               const TextAttribute& oldAttr,
-                               const TextAttribute& oldPopupAttr)
-{
-    // We also want to find and replace the inversion of the popup colors in case there are highlights
-    const WORD wOldPopupLegacy = oldPopupAttr.GetLegacyAttributes();
-    const WORD wNewPopupLegacy = newPopupAttr.GetLegacyAttributes();
-
-    const WORD wOldPopupAttrInv = (WORD)(((wOldPopupLegacy << 4) & 0xf0) | ((wOldPopupLegacy >> 4) & 0x0f));
-    const WORD wNewPopupAttrInv = (WORD)(((wNewPopupLegacy << 4) & 0xf0) | ((wNewPopupLegacy >> 4) & 0x0f));
-
-    const TextAttribute oldPopupInv{ wOldPopupAttrInv };
-    const TextAttribute newPopupInv{ wNewPopupAttrInv };
-
-    // Walk through every row in the rectangle
-    for (size_t i = 0; i < _oldContents.Height(); i++)
-    {
-        auto row = _oldContents.GetRow(i);
-
-        // Walk through every cell
-        for (auto& cell : row)
-        {
-            auto& attr = cell.TextAttr();
-
-            if (attr == oldAttr)
-            {
-                attr = newAttr;
-            }
-            else if (attr == oldPopupAttr)
-            {
-                attr = newPopupAttr;
-            }
-            else if (attr == oldPopupInv)
-            {
-                attr = newPopupInv;
-            }
-        }
-    }
 }
 
 // Routine Description:

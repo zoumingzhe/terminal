@@ -14,7 +14,7 @@ Abstract:
 #include <windows.h>
 #include <winmeta.h>
 #include <TraceLoggingProvider.h>
-#include "limits.h"
+#include "climits"
 
 TRACELOGGING_DECLARE_PROVIDER(g_hConsoleVirtTermParserEventTraceProvider);
 
@@ -24,7 +24,7 @@ namespace Microsoft::Console::VirtualTerminal
     {
     public:
         // Implement this as a singleton class.
-        static TermTelemetry& Instance()
+        static TermTelemetry& Instance() noexcept
         {
             static TermTelemetry s_Instance;
             return s_Instance;
@@ -52,7 +52,12 @@ namespace Microsoft::Console::VirtualTerminal
             DECKPNM,
             DSR,
             DA,
+            DA2,
+            DA3,
+            DECREQTPARM,
             VPA,
+            HPR,
+            VPR,
             ICH,
             DCH,
             SU,
@@ -62,6 +67,8 @@ namespace Microsoft::Console::VirtualTerminal
             IL,
             DL,
             DECSTBM,
+            NEL,
+            IND,
             RI,
             OSCWT,
             HTS,
@@ -73,6 +80,14 @@ namespace Microsoft::Console::VirtualTerminal
             DesignateG1,
             DesignateG2,
             DesignateG3,
+            LS2,
+            LS3,
+            LS1R,
+            LS2R,
+            LS3R,
+            SS2,
+            SS3,
+            DOCS,
             HVP,
             DECSTR,
             RIS,
@@ -84,23 +99,27 @@ namespace Microsoft::Console::VirtualTerminal
             REP,
             OSCFG,
             OSCBG,
+            DECALN,
+            OSCSCB,
             // Only use this last enum as a count of the number of codes.
             NUMBER_OF_CODES
         };
-        void Log(const Codes code);
-        void LogFailed(const wchar_t wch);
-        void SetShouldWriteFinalLog(const bool writeLog);
-        void SetActivityId(const GUID* activityId);
-        unsigned int GetAndResetTimesUsedCurrent();
-        unsigned int GetAndResetTimesFailedCurrent();
-        unsigned int GetAndResetTimesFailedOutsideRangeCurrent();
+        void Log(const Codes code) noexcept;
+        void LogFailed(const wchar_t wch) noexcept;
+        void SetShouldWriteFinalLog(const bool writeLog) noexcept;
+        void SetActivityId(const GUID* activityId) noexcept;
+        unsigned int GetAndResetTimesUsedCurrent() noexcept;
+        unsigned int GetAndResetTimesFailedCurrent() noexcept;
+        unsigned int GetAndResetTimesFailedOutsideRangeCurrent() noexcept;
 
     private:
         // Used to prevent multiple instances
-        TermTelemetry();
+        TermTelemetry() noexcept;
         ~TermTelemetry();
-        TermTelemetry(TermTelemetry const&);
-        void operator=(TermTelemetry const&);
+        TermTelemetry(TermTelemetry const&) = delete;
+        TermTelemetry(TermTelemetry&&) = delete;
+        TermTelemetry& operator=(const TermTelemetry&) = delete;
+        TermTelemetry& operator=(TermTelemetry&&) = delete;
 
         void WriteFinalTraceLog() const;
 

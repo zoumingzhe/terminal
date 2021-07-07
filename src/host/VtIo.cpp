@@ -7,7 +7,6 @@
 
 #include "../renderer/vt/XtermEngine.hpp"
 #include "../renderer/vt/Xterm256Engine.hpp"
-#include "../renderer/vt/WinTelnetEngine.hpp"
 
 #include "../renderer/base/renderer.hpp"
 #include "../types/inc/utils.hpp"
@@ -35,7 +34,7 @@ VtIo::VtIo() :
 // Arguments:
 //  VtIoMode: A string containing the console's requested VT mode. This can be
 //      any of the strings in VtIoModes.hpp
-//  pIoMode: recieves the VtIoMode that the string prepresents if it's a valid
+//  pIoMode: receives the VtIoMode that the string represents if it's a valid
 //      IO mode string
 // Return Value:
 //  S_OK if we parsed the string successfully, otherwise E_INVALIDARG indicating failure.
@@ -50,10 +49,6 @@ VtIo::VtIo() :
     else if (VtMode == XTERM_STRING)
     {
         ioMode = VtIoMode::XTERM;
-    }
-    else if (VtMode == WIN_TELNET_STRING)
-    {
-        ioMode = VtIoMode::WIN_TELNET;
     }
     else if (VtMode == XTERM_ASCII_STRING)
     {
@@ -73,6 +68,8 @@ VtIo::VtIo() :
 [[nodiscard]] HRESULT VtIo::Initialize(const ConsoleArguments* const pArgs)
 {
     _lookingForCursorPosition = pArgs->GetInheritCursor();
+    _resizeQuirk = pArgs->IsResizeQuirkEnabled();
+    _win32InputMode = pArgs->IsWin32InputModeEnabled();
 
     // If we were already given VT handles, set up the VT IO engine to use those.
     if (pArgs->InConptyMode())
@@ -158,33 +155,17 @@ VtIo::VtIo() :
             {
             case VtIoMode::XTERM_256:
                 _pVtRenderEngine = std::make_unique<Xterm256Engine>(std::move(_hOutput),
-                                                                    gci,
-                                                                    initialViewport,
-                                                                    gci.GetColorTable(),
-                                                                    static_cast<WORD>(gci.GetColorTableSize()));
+                                                                    initialViewport);
                 break;
             case VtIoMode::XTERM:
                 _pVtRenderEngine = std::make_unique<XtermEngine>(std::move(_hOutput),
-                                                                 gci,
                                                                  initialViewport,
-                                                                 gci.GetColorTable(),
-                                                                 static_cast<WORD>(gci.GetColorTableSize()),
                                                                  false);
                 break;
             case VtIoMode::XTERM_ASCII:
                 _pVtRenderEngine = std::make_unique<XtermEngine>(std::move(_hOutput),
-                                                                 gci,
                                                                  initialViewport,
-                                                                 gci.GetColorTable(),
-                                                                 static_cast<WORD>(gci.GetColorTableSize()),
                                                                  true);
-                break;
-            case VtIoMode::WIN_TELNET:
-                _pVtRenderEngine = std::make_unique<WinTelnetEngine>(std::move(_hOutput),
-                                                                     gci,
-                                                                     initialViewport,
-                                                                     gci.GetColorTable(),
-                                                                     static_cast<WORD>(gci.GetColorTableSize()));
                 break;
             default:
                 return E_FAIL;
@@ -192,6 +173,7 @@ VtIo::VtIo() :
             if (_pVtRenderEngine)
             {
                 _pVtRenderEngine->SetTerminalOwner(this);
+                _pVtRenderEngine->SetResizeQuirk(_resizeQuirk);
             }
         }
     }
@@ -233,6 +215,15 @@ bool VtIo::IsUsingVt() const
             g.getConsoleInformation().GetActiveOutputBuffer().SetTerminalConnection(_pVtRenderEngine.get());
         }
         CATCH_RETURN();
+    }
+
+    // GH#4999 - Send a sequence to the connected terminal to request
+    // win32-input-mode from them. This will enable the connected terminal to
+    // send us full INPUT_RECORDs as input. If the terminal doesn't understand
+    // this sequence, it'll just ignore it.
+    if (_win32InputMode)
+    {
+        LOG_IF_FAILED(_pVtRenderEngine->RequestWin32Input());
     }
 
     // MSFT: 15813316
@@ -374,7 +365,7 @@ void VtIo::CloseOutput()
 
 void VtIo::_ShutdownIfNeeded()
 {
-    // The callers should have both accquired the _shutdownLock at this point -
+    // The callers should have both acquired the _shutdownLock at this point -
     //      we dont want a race on who is actually responsible for closing it.
     if (_objectsCreated && _pVtInputThread == nullptr && _pVtRenderEngine == nullptr)
     {
@@ -396,4 +387,89 @@ void VtIo::_ShutdownIfNeeded()
         // Make sure we terminate.
         ServiceLocator::RundownAndExit(ERROR_BROKEN_PIPE);
     }
+}
+
+// Method Description:
+// - Tell the vt renderer to begin a resize operation. During a resize
+//   operation, the vt renderer should _not_ request to be repainted during a
+//   text buffer circling event. Any callers of this method should make sure to
+//   call EndResize to make sure the renderer returns to normal behavior.
+//   See GH#1795 for context on this method.
+// Arguments:
+// - <none>
+// Return Value:
+// - <none>
+void VtIo::BeginResize()
+{
+    if (_pVtRenderEngine)
+    {
+        _pVtRenderEngine->BeginResizeRequest();
+    }
+}
+
+// Method Description:
+// - Tell the vt renderer to end a resize operation.
+//   See BeginResize for more details.
+//   See GH#1795 for context on this method.
+// Arguments:
+// - <none>
+// Return Value:
+// - <none>
+void VtIo::EndResize()
+{
+    if (_pVtRenderEngine)
+    {
+        _pVtRenderEngine->EndResizeRequest();
+    }
+}
+
+#ifdef UNIT_TESTING
+// Method Description:
+// - This is a test helper method. It can be used to trick VtIo into responding
+//   true to `IsUsingVt`, which will cause the console host to act in conpty
+//   mode.
+// Arguments:
+// - vtRenderEngine: a VT renderer that our VtIo should use as the vt engine during these tests
+// Return Value:
+// - <none>
+void VtIo::EnableConptyModeForTests(std::unique_ptr<Microsoft::Console::Render::VtEngine> vtRenderEngine)
+{
+    _objectsCreated = true;
+    _pVtRenderEngine = std::move(vtRenderEngine);
+}
+#endif
+
+// Method Description:
+// - Returns true if the Resize Quirk is enabled. This changes the behavior of
+//   conpty to _not_ InvalidateAll the entire viewport on a resize operation.
+//   This is used by the Windows Terminal, because it is prepared to be
+//   connected to a conpty, and handles it's own buffer specifically for a
+//   conpty scenario.
+// - See also: GH#3490, #4354, #4741
+// Arguments:
+// - <none>
+// Return Value:
+// - true iff we were started with the `--resizeQuirk` flag enabled.
+bool VtIo::IsResizeQuirkEnabled() const
+{
+    return _resizeQuirk;
+}
+
+// Method Description:
+// - Manually tell the renderer that it should emit a "Erase Scrollback"
+//   sequence to the connected terminal. We need to do this in certain cases
+//   that we've identified where we believe the client wanted the entire
+//   terminal buffer cleared, not just the viewport. For more information, see
+//   GH#3126.
+// Arguments:
+// - <none>
+// Return Value:
+// - S_OK if we wrote the sequences successfully, otherwise an appropriate HRESULT
+[[nodiscard]] HRESULT VtIo::ManuallyClearScrollback() const noexcept
+{
+    if (_pVtRenderEngine)
+    {
+        return _pVtRenderEngine->ManuallyClearScrollback();
+    }
+    return S_OK;
 }

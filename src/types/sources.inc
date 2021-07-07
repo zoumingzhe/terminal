@@ -39,8 +39,15 @@ SOURCES= \
     ..\Viewport.cpp \
     ..\WindowBufferSizeEvent.cpp \
     ..\convert.cpp \
+    ..\colorTable.cpp \
     ..\Utf16Parser.cpp \
     ..\utils.cpp \
+    ..\ThemeUtils.cpp \
+    ..\ScreenInfoUiaProviderBase.cpp \
+    ..\UiaTextRangeBase.cpp \
+    ..\UiaTracing.cpp \
+    ..\TermControlUiaProvider.cpp \
+    ..\TermControlUiaTextRange.cpp \
 
 INCLUDES= \
     $(INCLUDES); \

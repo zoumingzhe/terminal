@@ -3,9 +3,196 @@
 
 #pragma once
 
+namespace Microsoft::Console::VirtualTerminal
+{
+    class VTID
+    {
+    public:
+        template<size_t Length>
+        constexpr VTID(const char (&s)[Length]) :
+            _value{ _FromString(s) }
+        {
+        }
+
+        constexpr VTID(const uint64_t value) :
+            _value{ value }
+        {
+        }
+
+        constexpr operator uint64_t() const
+        {
+            return _value;
+        }
+
+        constexpr char operator[](const size_t offset) const
+        {
+            return SubSequence(offset)._value & 0xFF;
+        }
+
+        constexpr VTID SubSequence(const size_t offset) const
+        {
+            return _value >> (CHAR_BIT * offset);
+        }
+
+    private:
+        template<size_t Length>
+        static constexpr uint64_t _FromString(const char (&s)[Length])
+        {
+            static_assert(Length - 1 <= sizeof(_value));
+            uint64_t value = 0;
+            for (auto i = Length - 1; i-- > 0;)
+            {
+                value = (value << CHAR_BIT) + gsl::at(s, i);
+            }
+            return value;
+        }
+
+        uint64_t _value;
+    };
+
+    class VTIDBuilder
+    {
+    public:
+        void Clear() noexcept
+        {
+            _idAccumulator = 0;
+            _idShift = 0;
+        }
+
+        void AddIntermediate(const wchar_t intermediateChar) noexcept
+        {
+            if (_idShift + CHAR_BIT >= sizeof(_idAccumulator) * CHAR_BIT)
+            {
+                // If there is not enough space in the accumulator to add
+                // the intermediate and still have room left for the final,
+                // then we reset the accumulator to zero. This will result
+                // in an id with all zero intermediates, which shouldn't
+                // match anything.
+                _idAccumulator = 0;
+            }
+            else
+            {
+                // Otherwise we shift the intermediate so as to add it to the
+                // accumulator in the next available space, and then increment
+                // the shift by 8 bits in preparation for the next character.
+                _idAccumulator += (static_cast<uint64_t>(intermediateChar) << _idShift);
+                _idShift += CHAR_BIT;
+            }
+        }
+
+        VTID Finalize(const wchar_t finalChar) noexcept
+        {
+            return _idAccumulator + (static_cast<uint64_t>(finalChar) << _idShift);
+        }
+
+    private:
+        uint64_t _idAccumulator = 0;
+        size_t _idShift = 0;
+    };
+
+    class VTParameter
+    {
+    public:
+        constexpr VTParameter() noexcept :
+            _value{ -1 }
+        {
+        }
+
+        constexpr VTParameter(const size_t rhs) noexcept :
+            _value{ gsl::narrow_cast<decltype(_value)>(rhs) }
+        {
+        }
+
+        constexpr bool has_value() const noexcept
+        {
+            // A negative value indicates that the parameter was omitted.
+            return _value >= 0;
+        }
+
+        constexpr size_t value() const noexcept
+        {
+            return _value;
+        }
+
+        constexpr size_t value_or(size_t defaultValue) const noexcept
+        {
+            return has_value() ? _value : defaultValue;
+        }
+
+        template<typename T, std::enable_if_t<sizeof(T) == sizeof(size_t), int> = 0>
+        constexpr operator T() const noexcept
+        {
+            // For most selective parameters, omitted values will default to 0.
+            return static_cast<T>(value_or(0));
+        }
+
+        constexpr operator size_t() const noexcept
+        {
+            // For numeric parameters, both 0 and omitted values will default to 1.
+            return has_value() && _value != 0 ? _value : 1;
+        }
+
+    private:
+        std::make_signed<size_t>::type _value;
+    };
+
+    class VTParameters
+    {
+    public:
+        constexpr VTParameters() noexcept
+        {
+        }
+
+        constexpr VTParameters(const VTParameter* ptr, const size_t count) noexcept :
+            _values{ ptr, count }
+        {
+        }
+
+        constexpr VTParameter at(const size_t index) const noexcept
+        {
+            // If the index is out of range, we return a parameter with no value.
+            return index < _values.size() ? _values[index] : VTParameter{};
+        }
+
+        constexpr bool empty() const noexcept
+        {
+            return _values.empty();
+        }
+
+        constexpr size_t size() const noexcept
+        {
+            // We always return a size of at least 1, since an empty parameter
+            // list is the equivalent of a single "default" parameter.
+            return std::max<size_t>(_values.size(), 1);
+        }
+
+        VTParameters subspan(const size_t offset) const noexcept
+        {
+            const auto subValues = _values.subspan(offset);
+            return { subValues.data(), subValues.size() };
+        }
+
+        template<typename T>
+        bool for_each(const T&& predicate) const
+        {
+            // We always return at least 1 value here, since an empty parameter
+            // list is the equivalent of a single "default" parameter.
+            auto success = predicate(at(0));
+            for (auto i = 1u; i < _values.size(); i++)
+            {
+                success = predicate(_values[i]) && success;
+            }
+            return success;
+        }
+
+    private:
+        gsl::span<const VTParameter> _values;
+    };
+}
+
 namespace Microsoft::Console::VirtualTerminal::DispatchTypes
 {
-    enum class EraseType : unsigned int
+    enum class EraseType : size_t
     {
         ToEnd = 0,
         FromBeginning = 1,
@@ -13,21 +200,28 @@ namespace Microsoft::Console::VirtualTerminal::DispatchTypes
         Scrollback = 3
     };
 
-    enum GraphicsOptions : unsigned int
+    enum GraphicsOptions : size_t
     {
         Off = 0,
         BoldBright = 1,
-        RGBColor = 2,
-        // 2 is also Faint, decreased intensity (ISO 6429).
+        // The 2 and 5 entries here are for BOTH the extended graphics options,
+        // as well as the Faint/Blink options.
+        RGBColorOrFaint = 2, // 2 is also Faint, decreased intensity (ISO 6429).
+        Italics = 3,
         Underline = 4,
-        Xterm256Index = 5,
-        // 5 is also Blink (appears as Bold).
-        // the 2 and 5 entries here are only for the extended graphics options
-        // as we do not currently support those features individually
+        BlinkOrXterm256Index = 5, // 5 is also Blink (appears as Bold).
+        RapidBlink = 6,
         Negative = 7,
-        UnBold = 22,
+        Invisible = 8,
+        CrossedOut = 9,
+        DoublyUnderlined = 21,
+        NotBoldOrFaint = 22,
+        NotItalics = 23,
         NoUnderline = 24,
-        Positive = 27,
+        Steady = 25, // _not_ blink
+        Positive = 27, // _not_ inverse
+        Visible = 28, // _not_ invisible
+        NotCrossedOut = 29,
         ForegroundBlack = 30,
         ForegroundRed = 31,
         ForegroundGreen = 32,
@@ -48,6 +242,8 @@ namespace Microsoft::Console::VirtualTerminal::DispatchTypes
         BackgroundWhite = 47,
         BackgroundExtended = 48,
         BackgroundDefault = 49,
+        Overline = 53,
+        NoOverline = 55,
         BrightForegroundBlack = 90,
         BrightForegroundRed = 91,
         BrightForegroundGreen = 92,
@@ -66,54 +262,80 @@ namespace Microsoft::Console::VirtualTerminal::DispatchTypes
         BrightBackgroundWhite = 107,
     };
 
-    enum class AnsiStatusType : unsigned int
+    enum class AnsiStatusType : size_t
     {
+        OS_OperatingStatus = 5,
         CPR_CursorPositionReport = 6,
     };
 
-    enum PrivateModeParams : unsigned short
+    enum PrivateModeParams : size_t
     {
         DECCKM_CursorKeysMode = 1,
+        DECANM_AnsiMode = 2,
         DECCOLM_SetNumberOfColumns = 3,
+        DECSCNM_ScreenMode = 5,
+        DECOM_OriginMode = 6,
+        DECAWM_AutoWrapMode = 7,
         ATT610_StartCursorBlink = 12,
         DECTCEM_TextCursorEnableMode = 25,
+        XTERM_EnableDECCOLMSupport = 40,
         VT200_MOUSE_MODE = 1000,
-        BUTTTON_EVENT_MOUSE_MODE = 1002,
+        BUTTON_EVENT_MOUSE_MODE = 1002,
         ANY_EVENT_MOUSE_MODE = 1003,
         UTF8_EXTENDED_MODE = 1005,
         SGR_EXTENDED_MODE = 1006,
         ALTERNATE_SCROLL = 1007,
-        ASB_AlternateScreenBuffer = 1049
+        ASB_AlternateScreenBuffer = 1049,
+        W32IM_Win32InputMode = 9001
     };
 
-    enum VTCharacterSets : wchar_t
+    enum CharacterSets : uint64_t
     {
-        DEC_LineDrawing = L'0',
-        USASCII = L'B'
+        DecSpecialGraphics = VTID("0"),
+        ASCII = VTID("B")
     };
 
-    enum TabClearType : unsigned short
+    enum CodingSystem : uint64_t
+    {
+        ISO2022 = VTID("@"),
+        UTF8 = VTID("G")
+    };
+
+    enum TabClearType : size_t
     {
         ClearCurrentColumn = 0,
         ClearAllColumns = 3
     };
 
-    enum WindowManipulationType : unsigned int
+    enum WindowManipulationType : size_t
     {
         Invalid = 0,
         RefreshWindow = 7,
         ResizeWindowInCharacters = 8,
     };
 
-    enum class CursorStyle : unsigned int
+    enum class CursorStyle : size_t
     {
-        BlinkingBlock = 0,
-        BlinkingBlockDefault = 1,
+        UserDefault = 0, // Implemented as "restore cursor to user default".
+        BlinkingBlock = 1,
         SteadyBlock = 2,
         BlinkingUnderline = 3,
         SteadyUnderline = 4,
         BlinkingBar = 5,
         SteadyBar = 6
+    };
+
+    enum class ReportingPermission : size_t
+    {
+        Unsolicited = 0,
+        Solicited = 1
+    };
+
+    enum class LineFeedType : unsigned int
+    {
+        WithReturn,
+        WithoutReturn,
+        DependsOnMode
     };
 
     constexpr short s_sDECCOLMSetColumns = 132;

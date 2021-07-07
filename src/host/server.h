@@ -21,7 +21,6 @@ Revision History:
 #include "settings.hpp"
 
 #include "conimeinfo.h"
-#include "..\terminal\adapter\MouseInput.hpp"
 #include "VtIo.hpp"
 #include "CursorBlinker.hpp"
 
@@ -29,8 +28,7 @@ Revision History:
 #include "..\server\WaitQueue.h"
 
 #include "..\host\RenderData.hpp"
-
-#include "..\inc\IDefaultColorProvider.hpp"
+#include "..\renderer\inc\BlinkingState.hpp"
 
 // clang-format off
 // Flags flags
@@ -76,8 +74,7 @@ class CommandHistory;
 
 class CONSOLE_INFORMATION :
     public Settings,
-    public Microsoft::Console::IIoProvider,
-    public Microsoft::Console::IDefaultColorProvider
+    public Microsoft::Console::IIoProvider
 {
 public:
     CONSOLE_INFORMATION();
@@ -107,8 +104,6 @@ public:
 
     ConsoleImeInfo ConsoleIme;
 
-    Microsoft::Console::VirtualTerminal::MouseInput terminalMouseInput;
-
     void LockConsole();
     bool TryLockConsole();
     void UnlockConsole();
@@ -116,8 +111,6 @@ public:
     ULONG GetCSRecursionCount();
 
     Microsoft::Console::VirtualTerminal::VtIo* GetVtIo();
-
-    static void HandleTerminalKeyEventCallback(_Inout_ std::deque<std::unique_ptr<IInputEvent>>& events);
 
     SCREEN_INFORMATION& GetActiveOutputBuffer() override;
     const SCREEN_INFORMATION& GetActiveOutputBuffer() const override;
@@ -133,6 +126,7 @@ public:
 
     COLORREF GetDefaultForeground() const noexcept;
     COLORREF GetDefaultBackground() const noexcept;
+    std::pair<COLORREF, COLORREF> LookupAttributeColors(const TextAttribute& attr) const noexcept;
 
     void SetTitle(const std::wstring_view newTitle);
     void SetTitlePrefix(const std::wstring& newTitlePrefix);
@@ -149,6 +143,7 @@ public:
     friend class SCREEN_INFORMATION;
     friend class CommonState;
     Microsoft::Console::CursorBlinker& GetCursorBlinker() noexcept;
+    Microsoft::Console::Render::BlinkingState& GetBlinkingState() const noexcept;
 
     CHAR_INFO AsCharInfo(const OutputCellView& cell) const noexcept;
 
@@ -165,6 +160,7 @@ private:
 
     Microsoft::Console::VirtualTerminal::VtIo _vtIo;
     Microsoft::Console::CursorBlinker _blinker;
+    mutable Microsoft::Console::Render::BlinkingState _blinkingState;
 };
 
 #define ConsoleLocked() (ServiceLocator::LocateGlobals()->getConsoleInformation()->ConsoleLock.OwningThread == NtCurrentTeb()->ClientId.UniqueThread)

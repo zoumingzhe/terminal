@@ -120,6 +120,28 @@ DWORD ToConsoleControlKeyFlag(const ModifierKeyState modifierKey) noexcept;
 class KeyEvent : public IInputEvent
 {
 public:
+    enum class Modifiers : DWORD
+    {
+        None = 0,
+        RightAlt = RIGHT_ALT_PRESSED,
+        LeftAlt = LEFT_ALT_PRESSED,
+        RightCtrl = RIGHT_CTRL_PRESSED,
+        LeftCtrl = LEFT_CTRL_PRESSED,
+        Shift = SHIFT_PRESSED,
+        NumLock = NUMLOCK_ON,
+        ScrollLock = SCROLLLOCK_ON,
+        CapsLock = CAPSLOCK_ON,
+        EnhancedKey = ENHANCED_KEY,
+        DbcsChar = NLS_DBCSCHAR,
+        Alphanumeric = NLS_ALPHANUMERIC,
+        Katakana = NLS_KATAKANA,
+        Hiragana = NLS_HIRAGANA,
+        Roman = NLS_ROMAN,
+        ImeConvert = NLS_IME_CONVERSION,
+        AltNumpad = ALTNUMPAD_BIT,
+        ImeDisable = NLS_IME_DISABLE
+    };
+
     constexpr KeyEvent(const KEY_EVENT_RECORD& record) :
         _keyDown{ !!record.bKeyDown },
         _repeatCount{ record.wRepeatCount },
@@ -155,39 +177,69 @@ public:
     {
     }
 
+    static std::pair<KeyEvent, KeyEvent> MakePair(
+        const WORD repeatCount,
+        const WORD virtualKeyCode,
+        const WORD virtualScanCode,
+        const wchar_t charData,
+        const DWORD activeModifierKeys)
+    {
+        return std::make_pair<KeyEvent, KeyEvent>(
+            { true,
+              repeatCount,
+              virtualKeyCode,
+              virtualScanCode,
+              charData,
+              activeModifierKeys },
+            { false,
+              repeatCount,
+              virtualKeyCode,
+              virtualScanCode,
+              charData,
+              activeModifierKeys });
+    }
+
     ~KeyEvent();
     KeyEvent(const KeyEvent&) = default;
     KeyEvent(KeyEvent&&) = default;
+// For these two operators, there seems to be a bug in the compiler:
+// See https://stackoverflow.com/a/60206505/1481137
+//   > C.128 applies only to virtual member functions, but operator= is not
+//   > virtual in your base class and neither does it have the same signature as
+//   > in the derived class, so there is no reason for it to apply.
+#pragma warning(push)
+#pragma warning(disable : 26456)
     KeyEvent& operator=(const KeyEvent&) & = default;
     KeyEvent& operator=(KeyEvent&&) & = default;
+#pragma warning(pop)
 
     INPUT_RECORD ToInputRecord() const noexcept override;
     InputEventType EventType() const noexcept override;
 
     constexpr bool IsShiftPressed() const noexcept
     {
-        return WI_IsFlagSet(_activeModifierKeys, SHIFT_PRESSED);
+        return WI_IsFlagSet(GetActiveModifierKeys(), SHIFT_PRESSED);
     }
 
     constexpr bool IsAltPressed() const noexcept
     {
-        return WI_IsAnyFlagSet(_activeModifierKeys, ALT_PRESSED);
+        return WI_IsAnyFlagSet(GetActiveModifierKeys(), ALT_PRESSED);
     }
 
     constexpr bool IsCtrlPressed() const noexcept
     {
-        return WI_IsAnyFlagSet(_activeModifierKeys, CTRL_PRESSED);
+        return WI_IsAnyFlagSet(GetActiveModifierKeys(), CTRL_PRESSED);
     }
 
     constexpr bool IsAltGrPressed() const noexcept
     {
-        return WI_IsFlagSet(_activeModifierKeys, LEFT_CTRL_PRESSED) &&
-               WI_IsFlagSet(_activeModifierKeys, RIGHT_ALT_PRESSED);
+        return WI_IsFlagSet(GetActiveModifierKeys(), LEFT_CTRL_PRESSED) &&
+               WI_IsFlagSet(GetActiveModifierKeys(), RIGHT_ALT_PRESSED);
     }
 
     constexpr bool IsModifierPressed() const noexcept
     {
-        return WI_IsAnyFlagSet(_activeModifierKeys, MOD_PRESSED);
+        return WI_IsAnyFlagSet(GetActiveModifierKeys(), MOD_PRESSED);
     }
 
     constexpr bool IsCursorKey() const noexcept
@@ -198,7 +250,7 @@ public:
 
     constexpr bool IsAltNumpadSet() const noexcept
     {
-        return WI_IsFlagSet(_activeModifierKeys, ALTNUMPAD_BIT);
+        return WI_IsFlagSet(GetActiveModifierKeys(), ALTNUMPAD_BIT);
     }
 
     constexpr bool IsKeyDown() const noexcept
@@ -233,7 +285,7 @@ public:
 
     constexpr DWORD GetActiveModifierKeys() const noexcept
     {
-        return _activeModifierKeys;
+        return static_cast<DWORD>(_activeModifierKeys);
     }
 
     void SetKeyDown(const bool keyDown) noexcept;
@@ -245,9 +297,32 @@ public:
     void SetActiveModifierKeys(const DWORD activeModifierKeys) noexcept;
     void DeactivateModifierKey(const ModifierKeyState modifierKey) noexcept;
     void ActivateModifierKey(const ModifierKeyState modifierKey) noexcept;
-    bool DoActiveModifierKeysMatch(const std::unordered_set<ModifierKeyState>& consoleModifiers) const noexcept;
+    bool DoActiveModifierKeysMatch(const std::unordered_set<ModifierKeyState>& consoleModifiers) const;
     bool IsCommandLineEditingKey() const noexcept;
     bool IsPopupKey() const noexcept;
+
+    // Function Description:
+    // - Returns true if the given VKey represents a modifier key - shift, alt,
+    //   control or the Win key.
+    // Arguments:
+    // - vkey: the VKEY to check
+    // Return Value:
+    // - true iff the key is a modifier key.
+    constexpr static bool IsModifierKey(const WORD vkey)
+    {
+        return (vkey == VK_CONTROL) ||
+               (vkey == VK_LCONTROL) ||
+               (vkey == VK_RCONTROL) ||
+               (vkey == VK_MENU) ||
+               (vkey == VK_LMENU) ||
+               (vkey == VK_RMENU) ||
+               (vkey == VK_SHIFT) ||
+               (vkey == VK_LSHIFT) ||
+               (vkey == VK_RSHIFT) ||
+               // There is no VK_WIN
+               (vkey == VK_LWIN) ||
+               (vkey == VK_RWIN);
+    };
 
 private:
     bool _keyDown;
@@ -255,7 +330,7 @@ private:
     WORD _virtualKeyCode;
     WORD _virtualScanCode;
     wchar_t _charData;
-    DWORD _activeModifierKeys;
+    Modifiers _activeModifierKeys;
 
     friend constexpr bool operator==(const KeyEvent& a, const KeyEvent& b) noexcept;
 #ifdef UNIT_TESTING

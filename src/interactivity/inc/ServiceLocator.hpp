@@ -16,12 +16,14 @@ Author(s):
 #pragma once
 
 #include "IInteractivityFactory.hpp"
-#include "IConsoleWindow.hpp"
+#include "../interactivity/inc/IConsoleWindow.hpp"
 #include "../../host/globals.h"
 
 #include <memory>
 
 #pragma hdrstop
+
+using namespace Microsoft::Console::Types;
 
 namespace Microsoft::Console::Interactivity
 {

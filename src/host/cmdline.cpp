@@ -26,23 +26,6 @@
 
 #pragma hdrstop
 using Microsoft::Console::Interactivity::ServiceLocator;
-// Routine Description:
-// - This routine is called when the user changes the screen/popup colors.
-// - It goes through the popup structures and changes the saved contents to reflect the new screen/popup colors.
-void CommandLine::UpdatePopups(const TextAttribute& NewAttributes,
-                               const TextAttribute& NewPopupAttributes,
-                               const TextAttribute& OldAttributes,
-                               const TextAttribute& OldPopupAttributes)
-{
-    for (auto& popup : _popups)
-    {
-        try
-        {
-            popup->UpdateStoredColors(NewAttributes, NewPopupAttributes, OldAttributes, OldPopupAttributes);
-        }
-        CATCH_LOG();
-    }
-}
 
 // Routine Description:
 // - This routine validates a string buffer and returns the pointers of where the strings start within the buffer.
@@ -412,7 +395,7 @@ void SetCurrentCommandLine(COOKED_READ_DATA& cookedReadData, _In_ SHORT Index) /
 {
     if (cookedReadData.HasHistory() &&
         cookedReadData.History().GetNumberOfCommands() &&
-        cookedReadData.ScreenInfo().GetBufferSize().Width() >= MINIMUM_COMMAND_PROMPT_SIZE + 2)
+        cookedReadData.ScreenInfo().GetBufferSize().Width() >= Popup::MINIMUM_COMMAND_PROMPT_SIZE + 2)
     {
         try
         {
@@ -955,7 +938,7 @@ void CommandLine::_deleteCommandHistory(COOKED_READ_DATA& cookedReadData) noexce
     if (cookedReadData.HasHistory())
     {
         cookedReadData.History().Empty();
-        cookedReadData.History().Flags |= CLE_ALLOCATED;
+        cookedReadData.History().Flags |= CommandHistory::CLE_ALLOCATED;
     }
 }
 

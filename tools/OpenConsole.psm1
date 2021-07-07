@@ -41,7 +41,7 @@ function Import-LocalModule
         Write-Verbose "$Name already downloaded"
         $versions = Get-ChildItem "$modules_root\$Name" | Sort-Object
 
-        Get-ChildItem -Path $versions[0] "$Name.psd1" | Import-Module
+        Get-ChildItem -Path "$modules_root\$Name\$($versions[0])\$Name.psd1" | Import-Module
     }
 }
 
@@ -159,7 +159,7 @@ function Invoke-OpenConsoleTests()
         [switch]$FTOnly,
 
         [parameter(Mandatory=$false)]
-        [ValidateSet('host', 'interactivityWin32', 'terminal', 'adapter', 'feature', 'uia', 'textbuffer', 'types')]
+        [ValidateSet('host', 'interactivityWin32', 'terminal', 'adapter', 'feature', 'uia', 'textbuffer', 'til', 'types', 'terminalCore', 'terminalApp', 'localTerminalApp')]
         [string]$Test,
 
         [parameter(Mandatory=$false)]
@@ -181,14 +181,17 @@ function Invoke-OpenConsoleTests()
         return
     }
     $OpenConsolePlatform = $Platform
+    $TestHostAppPath = "$env:OpenConsoleRoot\$OpenConsolePlatform\$Configuration\TestHostApp"
     if ($Platform -eq 'x86')
     {
         $OpenConsolePlatform = 'Win32'
+        $TestHostAppPath = "$env:OpenConsoleRoot\$Configuration\TestHostApp"
     }
     $OpenConsolePath = "$env:OpenConsoleroot\bin\$OpenConsolePlatform\$Configuration\OpenConsole.exe"
     $RunTePath = "$env:OpenConsoleRoot\tools\runte.cmd"
-    $TaefExePath = "$env:OpenConsoleRoot\packages\Taef.Redist.Wlk.10.30.180808002\build\binaries\$Platform\te.exe"
+    $TaefExePath = "$env:OpenConsoleRoot\packages\Taef.Redist.Wlk.10.57.200731005-develop\build\Binaries\$Platform\te.exe"
     $BinDir = "$env:OpenConsoleRoot\bin\$OpenConsolePlatform\$Configuration"
+
     [xml]$TestConfig = Get-Content "$env:OpenConsoleRoot\tools\tests.xml"
 
     # check if WinAppDriver needs to be started
@@ -222,6 +225,11 @@ function Invoke-OpenConsoleTests()
     {
         if ($t.type -eq "unit")
         {
+            if ($t.runInHostApp -eq "true")
+            {
+                & $TaefExePath "$TestHostAppPath\$($t.binary)" $TaefArgs
+            }
+
             & $TaefExePath "$BinDir\$($t.binary)" $TaefArgs
         }
         elseif ($t.type -eq "ft")
@@ -315,14 +323,27 @@ function Invoke-ClangFormat {
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory=$true,ValueFromPipeline=$true)]
-        [string[]]$Path
+        [string[]]$Path,
+
+        [Parameter(Mandatory=$false)]
+        [string]$ClangFormatPath = "clang-format" # (whichever one is in $PATH)
     )
+
+    Begin {
+        $BatchSize = [int]64
+        $Paths = @()
+    }
 
     Process {
         ForEach($_ in $Path) {
+            $Paths += Get-Item $_ -ErrorAction Stop | Select -Expand FullName
+        }
+    }
+
+    End {
+        For($i = [int]0; $i -Lt $Paths.Length; $i += $BatchSize) {
             Try {
-                $n = Get-Item $_ -ErrorAction Stop | Select -Expand FullName
-                & "$env:OpenconsoleRoot/dep/llvm/clang-format" -i $n
+                & $ClangFormatPath -i $Paths[$i .. ($i + $BatchSize - 1)]
             } Catch {
                 Write-Error $_
             }
@@ -333,9 +354,12 @@ function Invoke-ClangFormat {
 #.SYNOPSIS
 # runs code formatting on all c++ files
 function Invoke-CodeFormat() {
+    & "$env:OpenConsoleRoot\dep\nuget\nuget.exe" restore "$env:OpenConsoleRoot\tools\packages.config"
+    $clangPackage = ([xml](Get-Content "$env:OpenConsoleRoot\tools\packages.config")).packages.package | Where-Object id -like "clang-format*"
+    $clangFormatPath = "$env:OpenConsoleRoot\packages\$($clangPackage.id).$($clangPackage.version)\tools\clang-format.exe"
     Get-ChildItem -Recurse "$env:OpenConsoleRoot/src" -Include *.cpp, *.hpp, *.h |
       Where FullName -NotLike "*Generated Files*" |
-      Invoke-ClangFormat
+      Invoke-ClangFormat -ClangFormatPath $clangFormatPath
 }
 
 Export-ModuleMember -Function Set-MsbuildDevEnvironment,Invoke-OpenConsoleTests,Invoke-OpenConsoleBuild,Start-OpenConsole,Debug-OpenConsole,Invoke-CodeFormat
